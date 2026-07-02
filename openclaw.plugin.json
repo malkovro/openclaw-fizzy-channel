@@ -1,0 +1,39 @@
+{
+  "id": "fizzy",
+  "kind": "channel",
+  "channels": ["fizzy"],
+  "name": "Fizzy",
+  "description": "Turn every Fizzy card into a chat channel with the OpenClaw agent while the card is in a chosen kanban column.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "fizzy": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["baseUrl", "accountSlug", "apiToken", "webhookSecret", "activeColumnId"],
+        "properties": {
+          "enabled": { "type": "boolean", "description": "Enable the Fizzy channel" },
+          "baseUrl": { "type": "string", "description": "Fizzy base URL, e.g. http://localhost:3006" },
+          "accountSlug": { "type": "string", "description": "Fizzy external_account_id, e.g. 686465299" },
+          "apiToken": { "type": "string", "description": "Bearer access token for the bot (write permission)" },
+          "webhookSecret": { "type": "string", "description": "Signing secret of the Fizzy board webhook (HMAC-SHA256)" },
+          "activeColumnId": { "type": "string", "description": "Column id in which cards become chat channels" },
+          "agentId": { "type": "string", "description": "Optional OpenClaw agent id to answer (defaults to the main agent)" },
+          "botEmail": { "type": "string", "description": "Email of the bot user; its own comments are skipped to avoid echo loops" },
+          "greetOnEnter": { "type": "boolean", "description": "Post a greeting comment when a card enters the active column", "default": true }
+        }
+      },
+      "uiHints": {
+        "apiToken": { "label": "Bot access token", "sensitive": true },
+        "webhookSecret": { "label": "Webhook signing secret", "sensitive": true }
+      }
+    }
+  }
+}
