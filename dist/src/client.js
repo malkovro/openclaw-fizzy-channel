@@ -44,7 +44,7 @@ class FizzyClient {
     const res = await fetch(`${this.base}/cards/${cardNumber}/comments`, {
       method: "POST",
       headers: this.headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ comment: { body: html } })
+      body: JSON.stringify({ body: { html } })
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
