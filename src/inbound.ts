@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolveAccount, type FizzyAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
+import { contextPrefixForTurn } from "./cardcontext.js";
 
 // ---- Fizzy webhook payload shapes (subset we use) ----
 type FizzyEvent = {
@@ -66,14 +67,16 @@ export async function handleFizzyWebhook(
   res.end("ok");
 
   process.nextTick(() => {
-    routeEvent(api, account, event).catch((err) => {
+    processFizzyEvent(api, account, event).catch((err) => {
       api.logger?.error?.(`[fizzy] webhook processing failed: ${err?.message ?? err}`);
     });
   });
   return true;
 }
 
-async function routeEvent(api: any, account: FizzyAccount, event: FizzyEvent): Promise<void> {
+// Route one Fizzy event/activity (same shape for webhook payloads and activity-feed
+// items: { action, eventable, ... }). Reused by both webhook and poll modes.
+export async function processFizzyEvent(api: any, account: FizzyAccount, event: FizzyEvent): Promise<void> {
   if (event.action === "comment_created") {
     await onCommentCreated(api, account, event);
   } else if (event.action === "card_triaged" && account.greetOnEnter) {
@@ -102,11 +105,14 @@ async function onCommentCreated(api: any, account: FizzyAccount, event: FizzyEve
   const text = String(comment?.body?.plain_text ?? "").trim();
   if (!text) return;
 
+  // Prepend card content on thread init, or a delta if the card changed since
+  // the last message (reuses the card we just fetched; no extra API call).
+  const contextPrefix = contextPrefixForTurn(cardNumber, card);
+
   const reply = await runAgent(api, account, {
     cardNumber,
-    cardTitle: card.title ?? `Card #${cardNumber}`,
     senderName: comment?.creator?.name ?? "User",
-    text,
+    prompt: contextPrefix ? `${contextPrefix}${text}` : text,
   });
 
   if (reply) await client.postComment(cardNumber, textToHtml(reply));
@@ -131,7 +137,7 @@ async function onCardTriaged(api: any, account: FizzyAccount, event: FizzyEvent)
 async function runAgent(
   api: any,
   account: FizzyAccount,
-  ctx: { cardNumber: string; cardTitle: string; senderName: string; text: string },
+  ctx: { cardNumber: string; senderName: string; prompt: string },
 ): Promise<string> {
   const cfg = api.config;
   const agent = api.runtime.agent;
@@ -160,7 +166,7 @@ async function runAgent(
     disableMessageTool: true, // deterministic: take the returned text, we deliver it ourselves
     messageChannel: "fizzy",
     senderName: ctx.senderName,
-    prompt: ctx.text,
+    prompt: ctx.prompt,
   });
   const parts: string[] = (result?.payloads ?? [])
     .filter((p: any) => p?.text && !p.isError && !p.isReasoning)

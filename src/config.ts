@@ -10,12 +10,17 @@ export type FizzyAccount = {
   agentId?: string;
   botEmail?: string;
   greetOnEnter: boolean;
+  mode: "webhook" | "poll";
+  pollIntervalMs: number;
+  boardIds: string[];
 };
 
 export function resolveAccount(cfg: any, accountId?: string | null): FizzyAccount {
   const section = (cfg?.channels as Record<string, any>)?.["fizzy"];
   if (!section) throw new Error("fizzy: channels.fizzy config is missing");
-  const required = ["baseUrl", "accountSlug", "apiToken", "webhookSecret", "activeColumnId"];
+  const required = ["baseUrl", "accountSlug", "apiToken", "activeColumnId"];
+  // webhookSecret is only needed in webhook mode.
+  if (section.mode !== "poll") required.push("webhookSecret");
   for (const key of required) {
     if (!section[key]) throw new Error(`fizzy: channels.fizzy.${key} is required`);
   }
@@ -24,11 +29,14 @@ export function resolveAccount(cfg: any, accountId?: string | null): FizzyAccoun
     baseUrl: String(section.baseUrl).replace(/\/+$/, ""),
     accountSlug: String(section.accountSlug),
     apiToken: String(section.apiToken),
-    webhookSecret: String(section.webhookSecret),
+    webhookSecret: section.webhookSecret ? String(section.webhookSecret) : "",
     activeColumnId: String(section.activeColumnId),
     agentId: section.agentId ? String(section.agentId) : undefined,
     botEmail: section.botEmail ? String(section.botEmail).toLowerCase() : undefined,
     greetOnEnter: section.greetOnEnter !== false,
+    mode: section.mode === "poll" ? "poll" : "webhook",
+    pollIntervalMs: Number(section.pollIntervalMs) > 0 ? Number(section.pollIntervalMs) : 5000,
+    boardIds: Array.isArray(section.boardIds) ? section.boardIds.map(String) : [],
   };
 }
 

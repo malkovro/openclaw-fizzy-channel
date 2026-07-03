@@ -1,9 +1,34 @@
 {
   "name": "openclaw-fizzy-channel",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "OpenClaw channel plugin: chat with the agent from a Fizzy card while it sits in a chosen kanban column.",
+  "license": "MIT",
+  "author": "Léo Figea",
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "channel",
+    "fizzy",
+    "kanban",
+    "chatbot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/malkovro/openclaw-fizzy-channel.git"
+  },
+  "homepage": "https://github.com/malkovro/openclaw-fizzy-channel#readme",
+  "bugs": {
+    "url": "https://github.com/malkovro/openclaw-fizzy-channel/issues"
+  },
+  "files": [
+    "index.ts",
+    "setup-entry.ts",
+    "src/",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
   "openclaw": {
     "extensions": ["./index.ts"],
     "setupEntry": "./setup-entry.ts",

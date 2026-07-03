@@ -15,7 +15,10 @@ Fizzy card comment ──(webhook: comment_created)──▶  /fizzy/webhook
         └────────────── POST comment (bot) ◀── runEmbeddedAgent(session = card)
 ```
 
-- **Inbound**: Fizzy's board webhook (`comment_created`) hits the plugin's HTTP route. The plugin verifies the `X-Webhook-Signature` HMAC, fetches the card to confirm it is in `activeColumnId`, then runs an OpenClaw agent turn (`runEmbeddedAgent`) keyed to a per-card session.
+- **Inbound** (two modes):
+  - `poll` (default here, no tunnel): the gateway pulls Fizzy's activity feed (`GET /:account/activities`) every `pollIntervalMs`, outbound-only. No public URL / SSRF issues.
+  - `webhook`: Fizzy's board webhook (`comment_created`) POSTs to the plugin's HTTP route; the plugin verifies the `X-Webhook-Signature` HMAC. Real-time, but needs a gateway URL reachable from Fizzy.
+  Either way it then fetches the card to confirm it is in `activeColumnId` and runs an OpenClaw agent turn (`runEmbeddedAgent`) keyed to a per-card session.
 - **Outbound**: the agent's reply is posted back as a Fizzy comment via the REST API using a bot access token.
 - **No echo loop**: the plugin skips comments authored by the bot itself (matched by `botEmail`, with a `system`-role check as a fallback), so the bot's own replies don't re-trigger it.
 
@@ -29,16 +32,21 @@ Fizzy card comment ──(webhook: comment_created)──▶  /fizzy/webhook
 
 In `openclaw.json`:
 
-```json
+```jsonc
 {
   "channels": {
     "fizzy": {
+      "enabled": true,
+      "mode": "poll",                 // "poll" (no tunnel) or "webhook"
+      "pollIntervalMs": 5000,          // poll mode
+      "boardIds": ["<board id>"],      // poll mode: scope the activity feed (optional)
       "baseUrl": "http://localhost:3006",
-      "accountSlug": "686465299",
+      "accountSlug": "1234567",
       "apiToken": "<bot write token>",
-      "webhookSecret": "<board webhook signing secret>",
       "activeColumnId": "<column id>",
+      "botEmail": "openclaw-bot@example.com",
       "greetOnEnter": true
+      // "webhookSecret": "<signing secret>"   // required for mode:"webhook" only
     }
   }
 }
@@ -55,7 +63,9 @@ openclaw channels status --probe fizzy
 
 ## Reachability (Fizzy → gateway)
 
-Fizzy's `SsrfProtection` resolves the webhook host via public DNS and refuses private/loopback IPs, so a loopback gateway URL is rejected. For local testing, expose the gateway with a tunnel whose public hostname passes SSRF:
+**Use `mode: "poll"` and there is nothing to do** — the gateway only makes outbound calls to Fizzy, so no tunnel, public URL, or SSRF exception is needed. This is the recommended mode for local/dev and locked-down networks.
+
+`mode: "webhook"` is real-time but requires Fizzy to reach the gateway. Fizzy's `SsrfProtection` resolves the webhook host via public DNS and refuses private/loopback IPs, so a loopback gateway URL is rejected. For local webhook testing, expose the gateway with a tunnel whose public hostname passes SSRF:
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:18789
@@ -64,6 +74,17 @@ cloudflared tunnel --url http://127.0.0.1:18789
 
 Then set the Fizzy board webhook URL to `https://<random>.trycloudflare.com/fizzy/webhook`.
 In production the gateway already has a public URL, so no tunnel is needed.
+
+## Card content in the session
+
+The agent is given the card's content so it can reason about the work item, not just the chat:
+
+- **On thread init** (first message on a card), the prompt is prefixed with a card-context block: title, status, tags, and description.
+- **When the card changes**, the next message is prefixed with a short "card was edited: …" delta plus the current content. Editing a card never triggers a reply on its own — the agent just becomes aware of the change the next time it answers.
+
+This reuses the card fetch already done for the column gate (no extra API calls) and is diff-based, so it works even for **description edits, which Fizzy emits no event for** (only title changes are evented). Snapshots are per-card and in-memory, so after a gateway restart the next turn re-grounds with the full card. See `src/cardcontext.ts`.
+
+_Optional (not implemented): to inform a session the instant a card is edited even with no new comment, add a periodic re-fetch of active-session cards and append a transcript note via `openclaw/plugin-sdk/session-transcript-runtime` — at the cost of one card fetch per active session per interval._
 
 ## Sessions / dashboard
 

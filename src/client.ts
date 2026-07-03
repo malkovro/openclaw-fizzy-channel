@@ -4,6 +4,10 @@ import type { FizzyAccount } from "./config.js";
 export type FizzyCard = {
   number: number;
   title?: string;
+  description?: string;
+  tags?: string[];
+  status?: string;
+  closed?: boolean;
   column?: { id: string; name?: string } | null;
 };
 
@@ -20,6 +24,19 @@ export class FizzyClient {
       Accept: "application/json",
       ...extra,
     };
+  }
+
+  // Fetch one page of the account activity feed (newest first), optionally
+  // scoped to boards. Used by poll mode to detect new comments.
+  async listActivities(page: number, boardIds: string[] = []): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    for (const id of boardIds) params.append("board_ids[]", id);
+    const qs = params.toString();
+    const res = await fetch(`${this.base}/activities${qs ? `?${qs}` : ""}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`fizzy listActivities failed: HTTP ${res.status}`);
+    const body = await res.json();
+    return Array.isArray(body) ? body : [];
   }
 
   // Fetch a card by number. Returns the parsed card (incl. current column) or null on 404.
