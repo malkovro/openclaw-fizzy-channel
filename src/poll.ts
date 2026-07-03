@@ -9,7 +9,12 @@ const MAX_PAGES = 10; // safety cap when catching up a large backlog
 let handle: ReturnType<typeof setInterval> | null = null;
 let cursor: string | null = null; // last-seen activity id (UUIDv7 -> lexicographically ordered)
 let initialized = false;
-let running = false;
+let fetchRunning = false;
+let refetchRequested = false;
+let dispatcherPumping = false;
+let activeWorkers = 0;
+const pendingByCard = new Map<string, ActivityItem[][]>();
+const activeCards = new Set<string>();
 
 type ActivityItem = {
   id?: string;
@@ -23,6 +28,7 @@ type ActivityItem = {
 
 export function startPolling(api: any, account: FizzyAccount): void {
   stopPolling();
+  resetDispatcherState();
   const client = new FizzyClient(account);
   handle = setInterval(() => {
     void tick(api, account, client);
@@ -39,9 +45,24 @@ export function stopPolling(): void {
   }
 }
 
+function resetDispatcherState(): void {
+  cursor = null;
+  initialized = false;
+  fetchRunning = false;
+  refetchRequested = false;
+  dispatcherPumping = false;
+  activeWorkers = 0;
+  pendingByCard.clear();
+  activeCards.clear();
+}
+
 async function tick(api: any, account: FizzyAccount, client: FizzyClient): Promise<void> {
-  if (running) return; // don't overlap a slow batch with the next tick
-  running = true;
+  if (fetchRunning) {
+    refetchRequested = true;
+    return;
+  }
+
+  fetchRunning = true;
   try {
     if (!initialized) {
       // Baseline: remember the newest activity so we only answer messages from now on.
@@ -55,22 +76,26 @@ async function tick(api: any, account: FizzyAccount, client: FizzyClient): Promi
     const fresh = await fetchNewSince(api, client, cursor ?? "", account.boardIds);
     if (fresh.length === 0) return;
 
-    // Advance the cursor to the newest id we saw, then process oldest -> newest.
+    // Advance the cursor to the newest id we saw, then enqueue oldest -> newest.
     for (const it of fresh) {
       const id = String(it.id);
       if (id > (cursor ?? "")) cursor = id;
     }
     fresh.sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1));
 
-    await processFreshActivities(api, account, fresh);
+    enqueueFreshActivities(api, account, fresh);
   } catch (err: any) {
     api.logger?.error?.(`[fizzy] poll tick failed: ${err?.message ?? err}`);
   } finally {
-    running = false;
+    fetchRunning = false;
+    if (refetchRequested && handle) {
+      refetchRequested = false;
+      void tick(api, account, client);
+    }
   }
 }
 
-async function processFreshActivities(api: any, account: FizzyAccount, items: ActivityItem[]): Promise<void> {
+function enqueueFreshActivities(api: any, account: FizzyAccount, items: ActivityItem[]): void {
   const groups = new Map<string, ActivityItem[]>();
   for (const item of items) {
     const key = activityKey(item);
@@ -79,16 +104,65 @@ async function processFreshActivities(api: any, account: FizzyAccount, items: Ac
     else groups.set(key, [item]);
   }
 
-  const tasks = [...groups.values()].map((group) => async () => {
+  for (const [cardKey, group] of groups) {
+    const pending = pendingByCard.get(cardKey) ?? [];
+    pending.push(group);
+    pendingByCard.set(cardKey, pending);
+  }
+
+  void pumpDispatcher(api, account);
+}
+
+async function pumpDispatcher(api: any, account: FizzyAccount): Promise<void> {
+  if (dispatcherPumping) return;
+  dispatcherPumping = true;
+  try {
+    while (activeWorkers < account.pollConcurrency) {
+      const nextCardKey = nextPendingCardKey();
+      if (!nextCardKey) return;
+
+      activeCards.add(nextCardKey);
+      activeWorkers += 1;
+      void runCardQueue(api, account, nextCardKey).finally(() => {
+        activeCards.delete(nextCardKey);
+        activeWorkers -= 1;
+        void pumpDispatcher(api, account);
+      });
+    }
+  } finally {
+    dispatcherPumping = false;
+  }
+}
+
+function nextPendingCardKey(): string | null {
+  for (const [cardKey, pending] of pendingByCard) {
+    if (pending.length === 0) {
+      pendingByCard.delete(cardKey);
+      continue;
+    }
+    if (!activeCards.has(cardKey)) return cardKey;
+  }
+  return null;
+}
+
+async function runCardQueue(api: any, account: FizzyAccount, cardKey: string): Promise<void> {
+  while (true) {
+    const pending = pendingByCard.get(cardKey);
+    if (!pending || pending.length === 0) {
+      pendingByCard.delete(cardKey);
+      return;
+    }
+
+    const group = pending.shift();
+    if (!group || group.length === 0) continue;
+
     try {
       await processFizzyEventGroup(api, account, group);
     } catch (err: any) {
       const ids = group.map((item) => String(item?.id ?? "?")).join(",");
       api.logger?.error?.(`[fizzy] poll group ${ids} failed: ${err?.message ?? err}`);
     }
-  });
-
-  await runWithConcurrencyLimit(tasks, account.pollConcurrency);
+  }
 }
 
 function activityKey(item: ActivityItem): string {
@@ -104,23 +178,6 @@ function activityKey(item: ActivityItem): string {
   if (directMatch?.[1]) return `card:${directMatch[1]}`;
 
   return `activity:${String(item?.id ?? "")}:${String(item?.action ?? "")}:${String(item?.eventable?.url ?? "")}`;
-}
-
-async function runWithConcurrencyLimit(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
-  if (tasks.length === 0) return;
-  const workerCount = Math.max(1, Math.min(limit, tasks.length));
-  let nextIndex = 0;
-
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= tasks.length) return;
-      await tasks[index]();
-    }
-  });
-
-  await Promise.all(workers);
 }
 
 // Collect activities newer than `cursor` across pages (newest-first feed).
