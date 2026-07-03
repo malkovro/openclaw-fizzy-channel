@@ -2,7 +2,7 @@
 
 An [OpenClaw](https://openclaw.ai) channel plugin that turns every [Fizzy](https://github.com/basecamp/fizzy) card into a chat channel with the OpenClaw agent — **while the card sits in a chosen kanban column**.
 
-![Chatting with the OpenClaw agent from a Fizzy card — the agent answers from the card's own content](assets/demo.gif)
+![Chatting with the OpenClaw agent from a Fizzy card — the agent answers from the card's own content](https://raw.githubusercontent.com/malkovro/openclaw-fizzy-channel/main/assets/demo.gif)
 
 - A person writes a comment on the card → the OpenClaw agent replies as a comment.
 - The conversation is scoped per card (its own agent session), so context persists across messages.
