@@ -57,7 +57,15 @@ In `openclaw.json`:
 ## Install
 
 ```bash
+# from ClawHub
+openclaw plugins install clawhub:@malkovro/openclaw-fizzy-channel
+# or from npm
+openclaw plugins install @malkovro/openclaw-fizzy-channel
+# or from git
+openclaw plugins install git:github.com/malkovro/openclaw-fizzy-channel
+# or link a local checkout for development
 openclaw plugins install -l /path/to/openclaw-fizzy-channel
+
 openclaw plugins enable fizzy
 openclaw gateway restart
 openclaw channels status --probe fizzy
