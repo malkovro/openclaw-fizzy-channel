@@ -25,6 +25,7 @@
           "apiToken": { "type": "string", "description": "Bearer access token for the bot (write permission)" },
           "mode": { "type": "string", "enum": ["webhook", "poll"], "description": "Inbound transport: 'webhook' (Fizzy pushes; needs a reachable gateway URL) or 'poll' (gateway pulls the activity feed; outbound-only, no tunnel)", "default": "webhook" },
           "pollIntervalMs": { "type": "number", "description": "Poll interval in ms (poll mode)", "default": 5000 },
+          "pollConcurrency": { "type": "number", "description": "Max number of cards processed in parallel per poll batch; ordering is still preserved within each card", "default": 4 },
           "boardIds": { "type": "array", "items": { "type": "string" }, "description": "Optional board id(s) to scope the activity feed (poll mode)" },
           "webhookSecret": { "type": "string", "description": "Signing secret of the Fizzy board webhook (HMAC-SHA256; webhook mode only)" },
           "activeColumnId": { "type": "string", "description": "Column id in which cards become chat channels" },
