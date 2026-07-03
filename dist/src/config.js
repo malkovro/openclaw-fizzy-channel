@@ -18,7 +18,12 @@ function resolveAccount(cfg, accountId) {
     greetOnEnter: section.greetOnEnter !== false,
     mode: section.mode === "poll" ? "poll" : "webhook",
     pollIntervalMs: Number(section.pollIntervalMs) > 0 ? Number(section.pollIntervalMs) : 5e3,
-    boardIds: Array.isArray(section.boardIds) ? section.boardIds.map(String) : []
+    boardIds: Array.isArray(section.boardIds) ? section.boardIds.map(String) : [],
+    // Vision: pass card/comment images to the agent. Turn off for non-vision models
+    // (the agent then only gets a text note that an image exists).
+    sendImages: section.sendImages !== false,
+    maxImages: Number(section.maxImages) > 0 ? Number(section.maxImages) : 6,
+    maxImageBytes: Number(section.maxImageBytes) > 0 ? Number(section.maxImageBytes) : 5e6
   };
 }
 function inspectAccount(cfg) {

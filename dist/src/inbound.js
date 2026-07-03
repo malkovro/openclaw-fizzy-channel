@@ -3,6 +3,7 @@ import { resolveAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
 import { contextPrefixForTurn } from "./cardcontext.js";
+import { collectTurnImages } from "./images.js";
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -67,12 +68,22 @@ async function onCommentCreated(api, account, event) {
   const card = await client.getCard(cardNumber);
   if (!card || card.column?.id !== account.activeColumnId) return;
   const text = String(comment?.body?.plain_text ?? "").trim();
-  if (!text) return;
   const contextPrefix = contextPrefixForTurn(cardNumber, card);
+  const { images, notes } = await collectTurnImages(api, account, client, {
+    commentHtml: comment?.body?.html,
+    card,
+    cardNumber
+  });
+  if (!text && images.length === 0 && notes.length === 0) return;
+  const body = text || (images.length ? "(image attached \u2014 see above)" : "(image attachment)");
+  const notesLine = notes.length ? `
+
+[Note: ${notes.join("; ")}.]` : "";
   const reply = await runAgent(api, account, {
     cardNumber,
     senderName: comment?.creator?.name ?? "User",
-    prompt: contextPrefix ? `${contextPrefix}${text}` : text
+    prompt: `${contextPrefix}${body}${notesLine}`,
+    images
   });
   if (reply) await client.postComment(cardNumber, textToHtml(reply));
 }
@@ -108,7 +119,8 @@ async function runAgent(api, account, ctx) {
     // deterministic: take the returned text, we deliver it ourselves
     messageChannel: "fizzy",
     senderName: ctx.senderName,
-    prompt: ctx.prompt
+    prompt: ctx.prompt,
+    images: ctx.images && ctx.images.length ? ctx.images : void 0
   });
   const parts = (result?.payloads ?? []).filter((p) => p?.text && !p.isError && !p.isReasoning).map((p) => String(p.text));
   return parts.join("\n\n").trim();
