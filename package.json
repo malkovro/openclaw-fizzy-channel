@@ -65,5 +65,8 @@
   },
   "peerDependencies": {
     "openclaw": ">=2026.6.11"
+  },
+  "dependencies": {
+    "marked": "^15.0.12"
   }
 }
