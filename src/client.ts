@@ -5,6 +5,11 @@ export type FizzyCard = {
   number: number;
   title?: string;
   description?: string;
+  // Rich-text HTML rendering of the description (carries <img> attachments).
+  description_html?: string;
+  // Card cover image (absolute ActiveStorage URL), if any.
+  image_url?: string | null;
+  has_attachments?: boolean;
   tags?: string[];
   status?: string;
   closed?: boolean;
@@ -45,6 +50,15 @@ export class FizzyClient {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`fizzy getCard ${cardNumber} failed: HTTP ${res.status}`);
     return (await res.json()) as FizzyCard;
+  }
+
+  // Fetch a binary attachment (image) by URL, authenticated as the bot. Follows
+  // ActiveStorage redirects. Returns the bytes + content-type, or null on failure.
+  async fetchBinary(url: string): Promise<{ buffer: Buffer; contentType?: string } | null> {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${this.account.apiToken}` } });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, contentType: res.headers.get("content-type") ?? undefined };
   }
 
   // Post a comment (rich-text HTML body) to a card. Returns the created comment id.

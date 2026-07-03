@@ -96,6 +96,30 @@ This reuses the card fetch already done for the column gate (no extra API calls)
 
 _Optional (not implemented): to inform a session the instant a card is edited even with no new comment, add a periodic re-fetch of active-session cards and append a transcript note via `openclaw/plugin-sdk/session-transcript-runtime` — at the cost of one card fetch per active session per interval._
 
+## Images (vision)
+
+Images attached to a comment or the card are passed to the agent as real image
+input (base64), so a vision-capable model can actually see them — not just read
+the (empty) plain-text projection.
+
+- **What's sent**: images in the triggering comment (`body.html`), plus the card
+  cover image and images in the card description — the latter deduped per card so
+  the same description image isn't re-sent every turn (only on first sight / when
+  a new one appears).
+- **Fetch**: image `src`s are pulled from the rich-text HTML and fetched
+  authenticated as the bot (they're signed ActiveStorage URLs), reusing the card
+  fetch already done for the column gate.
+- **Fallback (skip + note)**: an image that can't be fetched, isn't an image, or
+  is still over `maxImageBytes` after a JPEG downscale is dropped and replaced by
+  a short text note (`[Note: comment image 1 (not shown: too large …)]`) so the
+  agent knows one exists. Extras beyond `maxImages` are noted the same way.
+- **Non-vision models**: set `"sendImages": false`. Images are then never fetched;
+  the agent just gets the text note. (There's no reliable way to auto-detect a
+  model's vision capability from a plugin, so this is an explicit switch.)
+
+Config knobs (all optional): `sendImages` (default `true`), `maxImages` (default
+`6`), `maxImageBytes` (default `5000000`). See `src/images.ts`.
+
 ## Sessions / dashboard
 
 Each card is a distinct agent session, registered in the standard session store as

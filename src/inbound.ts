@@ -5,6 +5,7 @@ import { resolveAccount, type FizzyAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
 import { contextPrefixForTurn } from "./cardcontext.js";
+import { collectTurnImages, type ImageContent } from "./images.js";
 
 // ---- Fizzy webhook payload shapes (subset we use) ----
 type FizzyEvent = {
@@ -103,16 +104,30 @@ async function onCommentCreated(api: any, account: FizzyAccount, event: FizzyEve
   if (!card || card.column?.id !== account.activeColumnId) return;
 
   const text = String(comment?.body?.plain_text ?? "").trim();
-  if (!text) return;
 
   // Prepend card content on thread init, or a delta if the card changed since
   // the last message (reuses the card we just fetched; no extra API call).
   const contextPrefix = contextPrefixForTurn(cardNumber, card);
 
+  // Pass along images attached to the comment (and the card, on first sight) so
+  // the agent can actually see them. Skipped/oversized images become text notes.
+  const { images, notes } = await collectTurnImages(api, account, client, {
+    commentHtml: comment?.body?.html,
+    card,
+    cardNumber,
+  });
+
+  // Nothing to act on: an empty comment with no images (e.g. a reaction).
+  if (!text && images.length === 0 && notes.length === 0) return;
+
+  const body = text || (images.length ? "(image attached — see above)" : "(image attachment)");
+  const notesLine = notes.length ? `\n\n[Note: ${notes.join("; ")}.]` : "";
+
   const reply = await runAgent(api, account, {
     cardNumber,
     senderName: comment?.creator?.name ?? "User",
-    prompt: contextPrefix ? `${contextPrefix}${text}` : text,
+    prompt: `${contextPrefix}${body}${notesLine}`,
+    images,
   });
 
   if (reply) await client.postComment(cardNumber, textToHtml(reply));
@@ -137,7 +152,7 @@ async function onCardTriaged(api: any, account: FizzyAccount, event: FizzyEvent)
 async function runAgent(
   api: any,
   account: FizzyAccount,
-  ctx: { cardNumber: string; senderName: string; prompt: string },
+  ctx: { cardNumber: string; senderName: string; prompt: string; images?: ImageContent[] },
 ): Promise<string> {
   const cfg = api.config;
   const agent = api.runtime.agent;
@@ -167,6 +182,7 @@ async function runAgent(
     messageChannel: "fizzy",
     senderName: ctx.senderName,
     prompt: ctx.prompt,
+    images: ctx.images && ctx.images.length ? ctx.images : undefined,
   });
   const parts: string[] = (result?.payloads ?? [])
     .filter((p: any) => p?.text && !p.isError && !p.isReasoning)

@@ -31,6 +31,14 @@ class FizzyClient {
     if (!res.ok) throw new Error(`fizzy getCard ${cardNumber} failed: HTTP ${res.status}`);
     return await res.json();
   }
+  // Fetch a binary attachment (image) by URL, authenticated as the bot. Follows
+  // ActiveStorage redirects. Returns the bytes + content-type, or null on failure.
+  async fetchBinary(url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${this.account.apiToken}` } });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, contentType: res.headers.get("content-type") ?? void 0 };
+  }
   // Post a comment (rich-text HTML body) to a card. Returns the created comment id.
   async postComment(cardNumber, html) {
     const res = await fetch(`${this.base}/cards/${cardNumber}/comments`, {

@@ -30,7 +30,10 @@
           "activeColumnId": { "type": "string", "description": "Column id in which cards become chat channels" },
           "agentId": { "type": "string", "description": "Optional OpenClaw agent id to answer (defaults to the main agent)" },
           "botEmail": { "type": "string", "description": "Email of the bot user; its own comments are skipped to avoid echo loops" },
-          "greetOnEnter": { "type": "boolean", "description": "Post a greeting comment when a card enters the active column", "default": true }
+          "greetOnEnter": { "type": "boolean", "description": "Post a greeting comment when a card enters the active column", "default": true },
+          "sendImages": { "type": "boolean", "description": "Pass card/comment images to the agent (requires a vision-capable model). If false, the agent only gets a text note that an image exists.", "default": true },
+          "maxImages": { "type": "number", "description": "Max images sent to the agent per turn (extras become text notes)", "default": 6 },
+          "maxImageBytes": { "type": "number", "description": "Max bytes per image; larger images are downscaled to JPEG, then skipped with a note if still too large", "default": 5000000 }
         }
       },
       "uiHints": {
