@@ -4,9 +4,15 @@ const MAX_PAGES = 10;
 let handle = null;
 let cursor = null;
 let initialized = false;
-let running = false;
+let fetchRunning = false;
+let refetchRequested = false;
+let dispatcherPumping = false;
+let activeWorkers = 0;
+const pendingByCard = /* @__PURE__ */ new Map();
+const activeCards = /* @__PURE__ */ new Set();
 function startPolling(api, account) {
   stopPolling();
+  resetDispatcherState();
   const client = new FizzyClient(account);
   handle = setInterval(() => {
     void tick(api, account, client);
@@ -21,9 +27,22 @@ function stopPolling() {
     handle = null;
   }
 }
+function resetDispatcherState() {
+  cursor = null;
+  initialized = false;
+  fetchRunning = false;
+  refetchRequested = false;
+  dispatcherPumping = false;
+  activeWorkers = 0;
+  pendingByCard.clear();
+  activeCards.clear();
+}
 async function tick(api, account, client) {
-  if (running) return;
-  running = true;
+  if (fetchRunning) {
+    refetchRequested = true;
+    return;
+  }
+  fetchRunning = true;
   try {
     if (!initialized) {
       const items = await client.listActivities(1, account.boardIds);
@@ -39,14 +58,18 @@ async function tick(api, account, client) {
       if (id > (cursor ?? "")) cursor = id;
     }
     fresh.sort((a, b) => String(a.id) < String(b.id) ? -1 : 1);
-    await processFreshActivities(api, account, fresh);
+    enqueueFreshActivities(api, account, fresh);
   } catch (err) {
     api.logger?.error?.(`[fizzy] poll tick failed: ${err?.message ?? err}`);
   } finally {
-    running = false;
+    fetchRunning = false;
+    if (refetchRequested && handle) {
+      refetchRequested = false;
+      void tick(api, account, client);
+    }
   }
 }
-async function processFreshActivities(api, account, items) {
+function enqueueFreshActivities(api, account, items) {
   const groups = /* @__PURE__ */ new Map();
   for (const item of items) {
     const key = activityKey(item);
@@ -54,15 +77,58 @@ async function processFreshActivities(api, account, items) {
     if (bucket) bucket.push(item);
     else groups.set(key, [item]);
   }
-  const tasks = [...groups.values()].map((group) => async () => {
+  for (const [cardKey, group] of groups) {
+    const pending = pendingByCard.get(cardKey) ?? [];
+    pending.push(group);
+    pendingByCard.set(cardKey, pending);
+  }
+  void pumpDispatcher(api, account);
+}
+async function pumpDispatcher(api, account) {
+  if (dispatcherPumping) return;
+  dispatcherPumping = true;
+  try {
+    while (activeWorkers < account.pollConcurrency) {
+      const nextCardKey = nextPendingCardKey();
+      if (!nextCardKey) return;
+      activeCards.add(nextCardKey);
+      activeWorkers += 1;
+      void runCardQueue(api, account, nextCardKey).finally(() => {
+        activeCards.delete(nextCardKey);
+        activeWorkers -= 1;
+        void pumpDispatcher(api, account);
+      });
+    }
+  } finally {
+    dispatcherPumping = false;
+  }
+}
+function nextPendingCardKey() {
+  for (const [cardKey, pending] of pendingByCard) {
+    if (pending.length === 0) {
+      pendingByCard.delete(cardKey);
+      continue;
+    }
+    if (!activeCards.has(cardKey)) return cardKey;
+  }
+  return null;
+}
+async function runCardQueue(api, account, cardKey) {
+  while (true) {
+    const pending = pendingByCard.get(cardKey);
+    if (!pending || pending.length === 0) {
+      pendingByCard.delete(cardKey);
+      return;
+    }
+    const group = pending.shift();
+    if (!group || group.length === 0) continue;
     try {
       await processFizzyEventGroup(api, account, group);
     } catch (err) {
       const ids = group.map((item) => String(item?.id ?? "?")).join(",");
       api.logger?.error?.(`[fizzy] poll group ${ids} failed: ${err?.message ?? err}`);
     }
-  });
-  await runWithConcurrencyLimit(tasks, account.pollConcurrency);
+  }
 }
 function activityKey(item) {
   const cardUrl = item?.eventable?.card?.url;
@@ -74,20 +140,6 @@ function activityKey(item) {
   const directMatch = typeof directUrl === "string" ? directUrl.match(/\/cards\/(\d+)/) : null;
   if (directMatch?.[1]) return `card:${directMatch[1]}`;
   return `activity:${String(item?.id ?? "")}:${String(item?.action ?? "")}:${String(item?.eventable?.url ?? "")}`;
-}
-async function runWithConcurrencyLimit(tasks, limit) {
-  if (tasks.length === 0) return;
-  const workerCount = Math.max(1, Math.min(limit, tasks.length));
-  let nextIndex = 0;
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= tasks.length) return;
-      await tasks[index]();
-    }
-  });
-  await Promise.all(workers);
 }
 async function fetchNewSince(api, client, cursor2, boardIds) {
   const collected = [];
