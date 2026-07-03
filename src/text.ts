@@ -1,19 +1,15 @@
-// Minimal text helpers. Fizzy comment bodies are rich-text HTML.
+import { marked } from "marked";
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
-// Convert the agent's plain/markdown-ish reply into simple, safe HTML for a Fizzy comment.
-// Paragraphs on blank lines; single newlines become <br>. Good enough for chat.
 export function textToHtml(text: string): string {
-  const trimmed = (text ?? "").trim();
-  if (!trimmed) return "<p></p>";
-  return trimmed
-    .split(/\n{2,}/)
-    .map((para) => `<p>${escapeHtml(para).replace(/\n/g, "<br>")}</p>`)
-    .join("");
+  const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return "<p></p>";
+
+  return String(marked.parse(escapeHtml(normalized), { gfm: true })).trim();
 }

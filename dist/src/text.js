@@ -1,10 +1,11 @@
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+import { marked } from "marked";
+function escapeHtml(text) {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 function textToHtml(text) {
-  const trimmed = (text ?? "").trim();
-  if (!trimmed) return "<p></p>";
-  return trimmed.split(/\n{2,}/).map((para) => `<p>${escapeHtml(para).replace(/\n/g, "<br>")}</p>`).join("");
+  const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return "<p></p>";
+  return String(marked.parse(escapeHtml(normalized), { gfm: true })).trim();
 }
 export {
   textToHtml
