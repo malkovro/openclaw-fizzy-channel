@@ -1,7 +1,7 @@
 // Poll mode: pull the Fizzy activity feed on an interval instead of receiving
 // webhooks. Outbound-only (gateway -> Fizzy), so it needs no public URL / tunnel.
 import { FizzyClient } from "./client.js";
-import { processFizzyEvent } from "./inbound.js";
+import { processFizzyEventGroup } from "./inbound.js";
 import type { FizzyAccount } from "./config.js";
 
 const MAX_PAGES = 10; // safety cap when catching up a large backlog
@@ -80,12 +80,11 @@ async function processFreshActivities(api: any, account: FizzyAccount, items: Ac
   }
 
   const tasks = [...groups.values()].map((group) => async () => {
-    for (const item of group) {
-      try {
-        await processFizzyEvent(api, account, item);
-      } catch (err: any) {
-        api.logger?.error?.(`[fizzy] poll item ${item?.id} failed: ${err?.message ?? err}`);
-      }
+    try {
+      await processFizzyEventGroup(api, account, group);
+    } catch (err: any) {
+      const ids = group.map((item) => String(item?.id ?? "?")).join(",");
+      api.logger?.error?.(`[fizzy] poll group ${ids} failed: ${err?.message ?? err}`);
     }
   });
 

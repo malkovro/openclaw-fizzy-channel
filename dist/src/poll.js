@@ -1,5 +1,5 @@
 import { FizzyClient } from "./client.js";
-import { processFizzyEvent } from "./inbound.js";
+import { processFizzyEventGroup } from "./inbound.js";
 const MAX_PAGES = 10;
 let handle = null;
 let cursor = null;
@@ -55,12 +55,11 @@ async function processFreshActivities(api, account, items) {
     else groups.set(key, [item]);
   }
   const tasks = [...groups.values()].map((group) => async () => {
-    for (const item of group) {
-      try {
-        await processFizzyEvent(api, account, item);
-      } catch (err) {
-        api.logger?.error?.(`[fizzy] poll item ${item?.id} failed: ${err?.message ?? err}`);
-      }
+    try {
+      await processFizzyEventGroup(api, account, group);
+    } catch (err) {
+      const ids = group.map((item) => String(item?.id ?? "?")).join(",");
+      api.logger?.error?.(`[fizzy] poll group ${ids} failed: ${err?.message ?? err}`);
     }
   });
   await runWithConcurrencyLimit(tasks, account.pollConcurrency);
