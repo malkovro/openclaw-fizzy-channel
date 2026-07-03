@@ -18,7 +18,7 @@ Fizzy card comment ──(webhook: comment_created)──▶  /fizzy/webhook
 ```
 
 - **Inbound** (two modes):
-  - `poll` (default here, no tunnel): the gateway pulls Fizzy's activity feed (`GET /:account/activities`) every `pollIntervalMs`, outbound-only. No public URL / SSRF issues. Fresh activity is processed with bounded parallelism across cards while preserving order within each card.
+  - `poll` (default here, no tunnel): the gateway pulls Fizzy's activity feed (`GET /:account/activities`) every `pollIntervalMs`, outbound-only. No public URL / SSRF issues. Fresh activity is processed with bounded parallelism across cards, and same-card comment bursts found in one poll batch are coalesced into a single agent turn.
   - `webhook`: Fizzy's board webhook (`comment_created`) POSTs to the plugin's HTTP route; the plugin verifies the `X-Webhook-Signature` HMAC. Real-time, but needs a gateway URL reachable from Fizzy.
   Either way it then fetches the card to confirm it is in `activeColumnId` and runs an OpenClaw agent turn (`runEmbeddedAgent`) keyed to a per-card session.
 - **Outbound**: the agent's reply is posted back as a Fizzy comment via the REST API using a bot access token.
@@ -74,7 +74,7 @@ openclaw channels status --probe fizzy
 
 ## Reachability (Fizzy → gateway)
 
-**Use `mode: "poll"` and there is nothing to do** — the gateway only makes outbound calls to Fizzy, so no tunnel, public URL, or SSRF exception is needed. This is the recommended mode for local/dev and locked-down networks. `pollConcurrency` lets polling stay simple without forcing cross-card sequential processing.
+**Use `mode: "poll"` and there is nothing to do** — the gateway only makes outbound calls to Fizzy, so no tunnel, public URL, or SSRF exception is needed. This is the recommended mode for local/dev and locked-down networks. `pollConcurrency` lets polling stay simple without forcing cross-card sequential processing, and same-card bursts are merged into one turn per poll tick.
 
 `mode: "webhook"` is real-time but requires Fizzy to reach the gateway. Fizzy's `SsrfProtection` resolves the webhook host via public DNS and refuses private/loopback IPs, so a loopback gateway URL is rejected. For local webhook testing, expose the gateway with a tunnel whose public hostname passes SSRF:
 
