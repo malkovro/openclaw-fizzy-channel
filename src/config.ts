@@ -12,6 +12,7 @@ export type FizzyAccount = {
   greetOnEnter: boolean;
   mode: "webhook" | "poll";
   pollIntervalMs: number;
+  pollConcurrency: number;
   boardIds: string[];
   sendImages: boolean;
   maxImages: number;
@@ -39,6 +40,7 @@ export function resolveAccount(cfg: any, accountId?: string | null): FizzyAccoun
     greetOnEnter: section.greetOnEnter !== false,
     mode: section.mode === "poll" ? "poll" : "webhook",
     pollIntervalMs: Number(section.pollIntervalMs) > 0 ? Number(section.pollIntervalMs) : 5000,
+    pollConcurrency: Number(section.pollConcurrency) > 0 ? Number(section.pollConcurrency) : 4,
     boardIds: Array.isArray(section.boardIds) ? section.boardIds.map(String) : [],
     // Vision: pass card/comment images to the agent. Turn off for non-vision models
     // (the agent then only gets a text note that an image exists).
