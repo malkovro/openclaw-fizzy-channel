@@ -28,13 +28,27 @@
     "index.ts",
     "setup-entry.ts",
     "src/",
+    "dist/",
     "openclaw.plugin.json",
     "README.md",
     "LICENSE"
   ],
+  "scripts": {
+    "build": "esbuild index.ts setup-entry.ts src/*.ts --outdir=dist --outbase=. --format=esm --platform=node --log-level=warning",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  },
   "openclaw": {
-    "extensions": ["./index.ts"],
+    "extensions": [
+      "./index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
     "setupEntry": "./setup-entry.ts",
+    "runtimeSetupEntry": "./dist/setup-entry.js",
     "channel": {
       "id": "fizzy",
       "label": "Fizzy",
