@@ -188,6 +188,20 @@ async function runAgent(api, account, ctx) {
   const sessionId = `fizzy-${account.accountSlug}-${ctx.cardNumber}`;
   const sessionKey = `agent:${agentId}:fizzy:${account.accountSlug}:${ctx.cardNumber}`;
   const fizzyTarget = String(ctx.cardNumber);
+  const persistDeliveryTarget = async () => {
+    try {
+      await updateLastRoute({
+        storePath: resolveStorePath(cfg?.session?.store, { agentId }),
+        sessionKey,
+        channel: "fizzy",
+        to: fizzyTarget,
+        createIfMissing: false
+      });
+    } catch (err) {
+      api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
+    }
+  };
+  await persistDeliveryTarget();
   const result = await agent.runEmbeddedAgent({
     sessionId,
     sessionKey,
@@ -208,18 +222,7 @@ async function runAgent(api, account, ctx) {
     prompt: ctx.prompt,
     images: ctx.images && ctx.images.length ? ctx.images : void 0
   });
-  try {
-    await updateLastRoute({
-      storePath: resolveStorePath(cfg?.session?.store, { agentId }),
-      sessionKey,
-      channel: "fizzy",
-      to: fizzyTarget,
-      createIfMissing: false
-      // the run above already created the entry
-    });
-  } catch (err) {
-    api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
-  }
+  await persistDeliveryTarget();
   const payloads = result?.payloads ?? [];
   const parts = payloads.filter((p) => p?.text && !p.isError && !p.isReasoning).map((p) => String(p.text));
   const media = [];

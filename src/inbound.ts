@@ -290,6 +290,37 @@ async function runAgent(
 
   const fizzyTarget = String(ctx.cardNumber);
 
+  // Persist the card as this session's sticky delivery target. runEmbeddedAgent
+  // does not record a delivery context on its own (and its messageTo only feeds
+  // the message tool, which we disable), so without this a resumed delivery like
+  // `openclaw agent --session-key <this> --deliver` has no target to resolve and
+  // fails with "Delivering to Fizzy requires target". Writing lastTo/deliveryContext
+  // lets core route resumed replies straight back to the card.
+  //
+  // We patch (never create — createIfMissing:false) so we don't stamp a random
+  // sessionId that would collide with our deterministic `fizzy-<acct>-<card>` id.
+  // Run it *before* the turn as well: for an existing session (the resumed /
+  // watchdog case) this puts the target in place before anything the turn spawns —
+  // e.g. a watchdog that wakes and delivers back to this session mid-turn would
+  // otherwise race ahead of an after-the-fact write and hit "requires target".
+  // The pre-run patch is a no-op on a brand-new card (no entry yet); the after-run
+  // patch covers that first turn once the run has created the entry.
+  const persistDeliveryTarget = async () => {
+    try {
+      await updateLastRoute({
+        storePath: resolveStorePath(cfg?.session?.store, { agentId }),
+        sessionKey,
+        channel: "fizzy",
+        to: fizzyTarget,
+        createIfMissing: false,
+      });
+    } catch (err: any) {
+      api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
+    }
+  };
+
+  await persistDeliveryTarget();
+
   const result = await agent.runEmbeddedAgent({
     sessionId,
     sessionKey,
@@ -310,23 +341,7 @@ async function runAgent(
     images: ctx.images && ctx.images.length ? ctx.images : undefined,
   });
 
-  // Persist the card as this session's sticky delivery target. runEmbeddedAgent
-  // does not record a delivery context on its own (and its messageTo only feeds
-  // the message tool, which we disable), so without this a resumed delivery like
-  // `openclaw agent --session-key <this> --deliver` has no target to resolve and
-  // fails with "Delivering to Fizzy requires target". Writing lastTo/deliveryContext
-  // here lets core route resumed replies straight back to the card.
-  try {
-    await updateLastRoute({
-      storePath: resolveStorePath(cfg?.session?.store, { agentId }),
-      sessionKey,
-      channel: "fizzy",
-      to: fizzyTarget,
-      createIfMissing: false, // the run above already created the entry
-    });
-  } catch (err: any) {
-    api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
-  }
+  await persistDeliveryTarget();
 
   const payloads: any[] = result?.payloads ?? [];
   const parts: string[] = payloads
