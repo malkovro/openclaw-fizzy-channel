@@ -18,22 +18,62 @@ const fizzyConfigAdapter = createTopLevelChannelConfigAdapter({
   resolveAllowFrom: () => [],
   formatAllowFrom: (allowFrom) => allowFrom.map(String)
 });
+function trimString(value) {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value).trim();
+  return "";
+}
 function parseCardNumberFromSessionKey(sessionKey) {
-  const raw = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  const raw = trimString(sessionKey);
   if (!raw) return void 0;
   const match = raw.match(/^agent:[^:]+:fizzy:([^:]+):(\d+)(?::|$)/);
   return match?.[2];
 }
+function parseCardNumberFromConversationId(conversationId) {
+  const raw = trimString(conversationId);
+  if (!raw) return void 0;
+  const match = raw.match(/^(?:card:)?(\d+)$/);
+  return match?.[1];
+}
+function findBoundConversationId(...sessionKeys) {
+  for (const sessionKey of sessionKeys) {
+    const normalized = trimString(sessionKey);
+    if (!normalized) continue;
+    const conversationId = getSessionBindingService().listBySession(normalized).find((record) => record?.conversation?.channel === "fizzy")?.conversation?.conversationId;
+    if (conversationId?.trim()) return conversationId.trim();
+  }
+  return void 0;
+}
 function resolveFizzyCardTarget(params) {
-  const directTo = typeof params?.to === "string" || typeof params?.to === "number" ? String(params.to).trim() : "";
-  if (directTo) return directTo;
-  const sessionKey = typeof params?.sessionKey === "string" ? params.sessionKey.trim() : "";
-  const boundConversationId = sessionKey ? getSessionBindingService().listBySession(sessionKey).find((record) => record?.conversation?.channel === "fizzy")?.conversation?.conversationId : void 0;
-  if (boundConversationId?.trim()) return boundConversationId.trim();
-  const cardFromSessionKey = parseCardNumberFromSessionKey(sessionKey);
+  const directCandidates = [
+    params?.to,
+    params?.replyTo,
+    params?.replyToId,
+    params?.target,
+    params?.threadId,
+    params?.peer?.id,
+    params?.route?.to,
+    params?.route?.peer?.id,
+    params?.conversationId,
+    params?.conversation?.conversationId,
+    params?.deliveryContext?.to,
+    params?.origin?.to
+  ];
+  for (const candidate of directCandidates) {
+    const directTo = trimString(candidate);
+    const parsedDirectCard = parseCardNumberFromConversationId(directTo) ?? directTo;
+    if (parsedDirectCard) return parsedDirectCard;
+  }
+  const sessionKey = trimString(params?.sessionKey);
+  const baseSessionKey = trimString(params?.baseSessionKey);
+  const boundConversationId = findBoundConversationId(sessionKey, baseSessionKey);
+  const parsedBoundCard = parseCardNumberFromConversationId(boundConversationId);
+  if (parsedBoundCard) return parsedBoundCard;
+  if (boundConversationId) return boundConversationId;
+  const cardFromSessionKey = parseCardNumberFromSessionKey(sessionKey) ?? parseCardNumberFromSessionKey(baseSessionKey);
   if (cardFromSessionKey) return cardFromSessionKey;
   throw new Error(
-    `fizzy outbound could not resolve target card number (missing params.to and no binding/sessionKey fallback; sessionKey=${sessionKey || "<empty>"})`
+    `fizzy outbound could not resolve target card number (missing direct target, binding, and sessionKey fallback; sessionKey=${sessionKey || baseSessionKey || "<empty>"})`
   );
 }
 const fizzyPlugin = createChatChannelPlugin({

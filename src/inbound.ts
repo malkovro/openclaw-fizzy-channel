@@ -260,6 +260,8 @@ async function runAgent(
   // shows up scoped to the agent and is openable at /chat?session=<sessionKey>.
   const sessionKey = `agent:${agentId}:fizzy:${account.accountSlug}:${ctx.cardNumber}`;
 
+  const fizzyTarget = String(ctx.cardNumber);
+
   const result = await agent.runEmbeddedAgent({
     sessionId,
     sessionKey,
@@ -271,6 +273,10 @@ async function runAgent(
     chatType: "dm",
     disableMessageTool: true, // deterministic: take the returned text, we deliver it ourselves
     messageChannel: "fizzy",
+    messageTo: fizzyTarget,
+    currentChannelId: fizzyTarget,
+    currentMessagingTarget: fizzyTarget,
+    chatId: fizzyTarget,
     senderName: ctx.senderName,
     prompt: ctx.prompt,
     images: ctx.images && ctx.images.length ? ctx.images : undefined,
