@@ -121,6 +121,30 @@ the (empty) plain-text projection.
 Config knobs (all optional): `sendImages` (default `true`), `maxImages` (default
 `6`), `maxImageBytes` (default `5000000`). See `src/images.ts`.
 
+## Outbound images / files
+
+The agent can attach images and files to its **replies**, not just prose. Any media
+the agent produces (a chart, a screenshot, a generated report/CSV, or a `![](url)`
+markdown image in its reply) is embedded as a real Fizzy attachment in the posted
+comment. Both reply paths — the inbound webhook/poll reply and the core-driven
+outbound adapter — go through one shared builder, so they render identically.
+
+- **Image already at a public `http(s)` URL** → embedded as a remote-image
+  ActionText attachment. Zero bytes are sent to Fizzy; the URL is referenced
+  verbatim and Fizzy renders it inline.
+- **Local/generated media, and any non-image file** (PDF, CSV, zip, …) → uploaded
+  to Fizzy via the standard ActiveStorage direct upload and embedded by
+  `attachable_sgid`. Fizzy self-hosts the bytes: images render inline (from a
+  generated variant), other files render as a download link with icon + size.
+- **Fallback (link + note)**: if the media can't be loaded or the upload fails, the
+  reply still posts — with the caption, a link to the source URL (when known), and a
+  short `[Note: …]` so the reader knows an attachment was intended. Nothing is lost.
+
+Media loading uses the SDK's SSRF- and size-guarded loader (`loadOutboundMediaFromUrl`),
+capped by `maxImageBytes`. Turn the whole feature off with `"sendOutboundImages": false`
+(default `true`) — replies then fall back to caption + link only. See
+`src/outbound-media.ts`.
+
 ## Sessions / dashboard
 
 Each card is a distinct agent session, registered in the standard session store as
@@ -132,4 +156,4 @@ So the conversation is also visible in `openclaw sessions` and openable in the d
 ## Notes / limitations
 
 - The route is served at `<gateway>/fizzy/webhook` (plugin-auth; the plugin verifies the Fizzy HMAC itself).
-- The message loop is driven directly via `runEmbeddedAgent` (deterministic: the agent's text reply is posted as a comment). The channel's `outbound.sendText` adapter also posts a comment, so any core-routed message to this channel works too.
+- The message loop is driven directly via `runEmbeddedAgent` (deterministic: the agent's text reply is posted as a comment). The channel's `outbound.sendText` / `outbound.sendMedia` adapters also post a comment (text, and image/file attachments respectively), so any core-routed message to this channel works too.
