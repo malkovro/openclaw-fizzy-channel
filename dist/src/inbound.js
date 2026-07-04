@@ -176,6 +176,7 @@ async function runAgent(api, account, ctx) {
   const agentId = account.agentId ?? cfg?.agents?.list?.[0]?.id ?? "main";
   const sessionId = `fizzy-${account.accountSlug}-${ctx.cardNumber}`;
   const sessionKey = `agent:${agentId}:fizzy:${account.accountSlug}:${ctx.cardNumber}`;
+  const fizzyTarget = String(ctx.cardNumber);
   const result = await agent.runEmbeddedAgent({
     sessionId,
     sessionKey,
@@ -188,6 +189,10 @@ async function runAgent(api, account, ctx) {
     disableMessageTool: true,
     // deterministic: take the returned text, we deliver it ourselves
     messageChannel: "fizzy",
+    messageTo: fizzyTarget,
+    currentChannelId: fizzyTarget,
+    currentMessagingTarget: fizzyTarget,
+    chatId: fizzyTarget,
     senderName: ctx.senderName,
     prompt: ctx.prompt,
     images: ctx.images && ctx.images.length ? ctx.images : void 0
