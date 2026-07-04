@@ -15,6 +15,7 @@ export type FizzyAccount = {
   pollConcurrency: number;
   boardIds: string[];
   sendImages: boolean;
+  sendOutboundImages: boolean;
   maxImages: number;
   maxImageBytes: number;
 };
@@ -45,6 +46,9 @@ export function resolveAccount(cfg: any, accountId?: string | null): FizzyAccoun
     // Vision: pass card/comment images to the agent. Turn off for non-vision models
     // (the agent then only gets a text note that an image exists).
     sendImages: section.sendImages !== false,
+    // Outbound: embed agent-produced images/files as real attachments in replies.
+    // Kill switch — turn off to fall back to caption + link only.
+    sendOutboundImages: section.sendOutboundImages !== false,
     maxImages: Number(section.maxImages) > 0 ? Number(section.maxImages) : 6,
     maxImageBytes: Number(section.maxImageBytes) > 0 ? Number(section.maxImageBytes) : 5_000_000,
   };

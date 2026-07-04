@@ -3,6 +3,7 @@ import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-s
 import { resolveAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
+import { buildOutboundCommentBody } from "./outbound-media.js";
 import { contextPrefixForTurn } from "./cardcontext.js";
 import { collectTurnImages } from "./images.js";
 function readRawBody(req) {
@@ -103,7 +104,7 @@ async function onCommentCreated(api, account, event) {
     prompt: `${contextPrefix}${body}${notesLine}`,
     images
   });
-  if (reply) await client.postComment(cardNumber, textToHtml(reply));
+  await deliverReply(api, account, client, cardNumber, reply);
 }
 async function onCommentCreatedBatch(api, account, events) {
   const comments = events.map((event) => event.eventable ?? {}).filter((comment) => {
@@ -156,7 +157,16 @@ async function onCommentCreatedBatch(api, account, events) {
 ` + promptParts.join("\n\n"),
     images
   });
-  if (reply) await client.postComment(cardNumber, textToHtml(reply));
+  await deliverReply(api, account, client, cardNumber, reply);
+}
+async function deliverReply(api, account, client, cardNumber, reply) {
+  if (!reply.text && reply.media.length === 0) return;
+  const html = await buildOutboundCommentBody(api, account, client, {
+    caption: reply.text,
+    mediaUrls: reply.media,
+    policy: { workspaceDir: reply.workspaceDir }
+  });
+  await client.postComment(cardNumber, html);
 }
 async function onCardTriaged(api, account, event) {
   const card = event.eventable ?? {};
@@ -210,8 +220,23 @@ async function runAgent(api, account, ctx) {
   } catch (err) {
     api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
   }
-  const parts = (result?.payloads ?? []).filter((p) => p?.text && !p.isError && !p.isReasoning).map((p) => String(p.text));
-  return parts.join("\n\n").trim();
+  const payloads = result?.payloads ?? [];
+  const parts = payloads.filter((p) => p?.text && !p.isError && !p.isReasoning).map((p) => String(p.text));
+  const media = [];
+  const seen = /* @__PURE__ */ new Set();
+  const addMedia = (value) => {
+    const url = String(value ?? "").trim();
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      media.push(url);
+    }
+  };
+  for (const p of payloads) {
+    if (!p || p.isError || p.isReasoning) continue;
+    if (Array.isArray(p.mediaUrls)) for (const u of p.mediaUrls) addMedia(u);
+    if (p.mediaUrl) addMedia(p.mediaUrl);
+  }
+  return { text: parts.join("\n\n").trim(), media, workspaceDir };
 }
 export {
   handleFizzyWebhook,

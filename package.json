@@ -35,6 +35,7 @@
   ],
   "scripts": {
     "build": "esbuild index.ts setup-entry.ts src/*.ts --outdir=dist --outbase=. --format=esm --platform=node --log-level=warning",
+    "test": "npm run build && node --test",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

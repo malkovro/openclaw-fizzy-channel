@@ -8,6 +8,7 @@ import { getSessionBindingService } from "openclaw/plugin-sdk/session-binding-ru
 import { resolveAccount, inspectAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
+import { buildOutboundCommentBody } from "./outbound-media.js";
 import { getApi } from "./state.js";
 const fizzyConfigAdapter = createTopLevelChannelConfigAdapter({
   sectionKey: "fizzy",
@@ -104,6 +105,9 @@ const fizzyPlugin = createChatChannelPlugin({
         to
       };
     },
+    // Lift remote Markdown images (`![](https://…png)`) in the agent's reply text
+    // into media payloads so they route through sendMedia on this core-driven path.
+    base: { extractMarkdownImages: true },
     attachedResults: {
       channel: "fizzy",
       sendText: async (params) => {
@@ -112,10 +116,39 @@ const fizzyPlugin = createChatChannelPlugin({
         const to = resolveFizzyCardTarget(params);
         const id = await client.postComment(to, textToHtml(String(params.text ?? "")));
         return { messageId: id ?? `fizzy:${to}:${Date.now()}` };
+      },
+      // Core dispatches one sendMedia call per media item, with `text` as the
+      // caption. Load the media, embed it as a real Fizzy attachment (or degrade
+      // to a link on failure), and post one comment.
+      sendMedia: async (params) => {
+        const api = getApi();
+        const account = resolveAccount(params?.cfg ?? api.config, params?.accountId);
+        const client = new FizzyClient(account);
+        const to = resolveFizzyCardTarget(params);
+        const mediaUrl = String(params?.mediaUrl ?? "");
+        const html = await buildOutboundCommentBody(api, account, client, {
+          caption: String(params?.text ?? ""),
+          mediaUrls: mediaUrl ? [mediaUrl] : [],
+          policy: {
+            mediaAccess: params?.mediaAccess,
+            mediaLocalRoots: params?.mediaLocalRoots,
+            mediaReadFile: params?.mediaReadFile,
+            workspaceDir: resolveWorkspaceDir(api, params?.cfg ?? api.config)
+          }
+        });
+        const id = await client.postComment(to, html);
+        return { messageId: id ?? `fizzy:${to}:${Date.now()}` };
       }
     }
   }
 });
+function resolveWorkspaceDir(api, cfg) {
+  try {
+    return api?.runtime?.agent?.resolveAgentWorkspaceDir?.(cfg);
+  } catch {
+    return void 0;
+  }
+}
 export {
   fizzyPlugin
 };

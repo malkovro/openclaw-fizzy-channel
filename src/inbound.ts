@@ -6,6 +6,7 @@ import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-s
 import { resolveAccount, type FizzyAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
+import { buildOutboundCommentBody } from "./outbound-media.js";
 import { contextPrefixForTurn } from "./cardcontext.js";
 import { collectTurnImages, type ImageContent } from "./images.js";
 
@@ -156,7 +157,7 @@ async function onCommentCreated(api: any, account: FizzyAccount, event: FizzyEve
     images,
   });
 
-  if (reply) await client.postComment(cardNumber, textToHtml(reply));
+  await deliverReply(api, account, client, cardNumber, reply);
 }
 
 async function onCommentCreatedBatch(api: any, account: FizzyAccount, events: FizzyEvent[]): Promise<void> {
@@ -223,7 +224,27 @@ async function onCommentCreatedBatch(api: any, account: FizzyAccount, events: Fi
     images,
   });
 
-  if (reply) await client.postComment(cardNumber, textToHtml(reply));
+  await deliverReply(api, account, client, cardNumber, reply);
+}
+
+// Post an agent reply to a card: caption text plus any media the agent produced,
+// embedded as real Fizzy attachments (with link/note fallback). Both the single
+// and batch comment handlers converge here so replies render identically to the
+// core-driven outbound path (channel.ts). No-op when there is nothing to say.
+async function deliverReply(
+  api: any,
+  account: FizzyAccount,
+  client: FizzyClient,
+  cardNumber: string,
+  reply: AgentReply,
+): Promise<void> {
+  if (!reply.text && reply.media.length === 0) return;
+  const html = await buildOutboundCommentBody(api, account, client, {
+    caption: reply.text,
+    mediaUrls: reply.media,
+    policy: { workspaceDir: reply.workspaceDir },
+  });
+  await client.postComment(cardNumber, html);
 }
 
 async function onCardTriaged(api: any, account: FizzyAccount, event: FizzyEvent): Promise<void> {
@@ -242,11 +263,16 @@ async function onCardTriaged(api: any, account: FizzyAccount, event: FizzyEvent)
 // The session is registered in the standard store (one session per card), keyed
 // like other channels (agent:<agentId>:fizzy:<account>:direct:<card>), so the
 // conversation shows up in the OpenClaw dashboard and `openclaw sessions`.
+// One agent turn's deliverable: the joined reply text, any media URLs/paths the
+// agent produced (from reply payloads), and the workspace dir for resolving
+// relative local media paths.
+type AgentReply = { text: string; media: string[]; workspaceDir?: string };
+
 async function runAgent(
   api: any,
   account: FizzyAccount,
   ctx: { cardNumber: string; senderName: string; prompt: string; images?: ImageContent[] },
-): Promise<string> {
+): Promise<AgentReply> {
   const cfg = api.config;
   const agent = api.runtime.agent;
   const workspaceDir: string = agent.resolveAgentWorkspaceDir(cfg);
@@ -302,8 +328,28 @@ async function runAgent(
     api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
   }
 
-  const parts: string[] = (result?.payloads ?? [])
+  const payloads: any[] = result?.payloads ?? [];
+  const parts: string[] = payloads
     .filter((p: any) => p?.text && !p.isError && !p.isReasoning)
     .map((p: any) => String(p.text));
-  return parts.join("\n\n").trim();
+
+  // Also surface any media the agent produced (deterministic path: the message
+  // tool is disabled, so media reaches us only via reply-payload mediaUrls/mediaUrl
+  // or markdown-image lifting). Dedupe while preserving order.
+  const media: string[] = [];
+  const seen = new Set<string>();
+  const addMedia = (value: unknown) => {
+    const url = String(value ?? "").trim();
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      media.push(url);
+    }
+  };
+  for (const p of payloads) {
+    if (!p || p.isError || p.isReasoning) continue;
+    if (Array.isArray(p.mediaUrls)) for (const u of p.mediaUrls) addMedia(u);
+    if (p.mediaUrl) addMedia(p.mediaUrl);
+  }
+
+  return { text: parts.join("\n\n").trim(), media, workspaceDir };
 }
