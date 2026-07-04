@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-store-runtime";
 import { resolveAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
@@ -197,6 +198,18 @@ async function runAgent(api, account, ctx) {
     prompt: ctx.prompt,
     images: ctx.images && ctx.images.length ? ctx.images : void 0
   });
+  try {
+    await updateLastRoute({
+      storePath: resolveStorePath(cfg?.session?.store, { agentId }),
+      sessionKey,
+      channel: "fizzy",
+      to: fizzyTarget,
+      createIfMissing: false
+      // the run above already created the entry
+    });
+  } catch (err) {
+    api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
+  }
   const parts = (result?.payloads ?? []).filter((p) => p?.text && !p.isError && !p.isReasoning).map((p) => String(p.text));
   return parts.join("\n\n").trim();
 }

@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-store-runtime";
+
 import { resolveAccount, type FizzyAccount } from "./config.js";
 import { FizzyClient } from "./client.js";
 import { textToHtml } from "./text.js";
@@ -281,6 +283,25 @@ async function runAgent(
     prompt: ctx.prompt,
     images: ctx.images && ctx.images.length ? ctx.images : undefined,
   });
+
+  // Persist the card as this session's sticky delivery target. runEmbeddedAgent
+  // does not record a delivery context on its own (and its messageTo only feeds
+  // the message tool, which we disable), so without this a resumed delivery like
+  // `openclaw agent --session-key <this> --deliver` has no target to resolve and
+  // fails with "Delivering to Fizzy requires target". Writing lastTo/deliveryContext
+  // here lets core route resumed replies straight back to the card.
+  try {
+    await updateLastRoute({
+      storePath: resolveStorePath(cfg?.session?.store, { agentId }),
+      sessionKey,
+      channel: "fizzy",
+      to: fizzyTarget,
+      createIfMissing: false, // the run above already created the entry
+    });
+  } catch (err: any) {
+    api.logger?.warn?.(`[fizzy] failed to persist delivery target for ${sessionKey}: ${err?.message ?? err}`);
+  }
+
   const parts: string[] = (result?.payloads ?? [])
     .filter((p: any) => p?.text && !p.isError && !p.isReasoning)
     .map((p: any) => String(p.text));
